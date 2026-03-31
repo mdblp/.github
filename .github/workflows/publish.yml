@@ -5,85 +5,151 @@ on:
         description: 'App name, e.g. crew, seashell'
         type: string
         required: true
-      docker-image:
-        description: 'Full image name, e.g. docker.ci.diabeloop.eu/crew'
-        type: string
-        required: true
-      docker-target:
-        type: string
-        default: 'production'
-    secrets:
-      github-token:
-        required: true
-      docker-username:
-        required: true
-      docker-password:
-        required: true
-      s3-access-key:
-        required: true
-      s3-secret-key:
-        required: true
-      s3-doc-bucket:
-        required: true
+    secrets: inherit
 
 jobs:
   docker:
+    name: Build & Push Docker image
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - id: version
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Strip the leading "v" to get the bare semver (e.g. "3.2.1")
+      - name: Extract version
+        id: version
         run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker registry
+        uses: docker/login-action@v3
         with:
           registry: docker.ci.diabeloop.eu
-          username: ${{ secrets.docker-username }}
-          password: ${{ secrets.docker-password }}
-      - uses: docker/build-push-action@v6
+          username: ${{ secrets.NEXUS_USERNAME }}
+          password: ${{ secrets.NEXUS_PASSWORD }}
+      - name: Login to ECR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ECR_AWS_ACCOUNT_NUMBER }}.dkr.ecr.eu-west-3.amazonaws.com
+          username: ${{ secrets.ECR_ACCESS_KEY }}
+          password: ${{ secrets.ECR_SECRET_ACCESS_KEY }}
+
+      # Targets the "production" stage of the multi-stage Dockerfile.
+      # APP_VERSION is embedded in the binary via ldflags (see qa/build.sh).
+      # GITHUB_TOKEN is required by the Dockerfile to fetch private Go modules.
+      - name: Build and push for dev
+        uses: docker/build-push-action@v6
         with:
           context: .
-          target: ${{ inputs.docker-target }}
+          target: production
+          platforms: linux/arm64,linux/amd64
           push: true
+          # Tag with the exact release version AND update the "latest" pointer
           tags: |
-            ${{ inputs.docker-image }}:${{ github.ref_name }}
-            ${{ inputs.docker-image }}:latest
+            docker.ci.diabeloop.eu/${APP_NAME}:${{ steps.version.outputs.value }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
-            GITHUB_TOKEN=${{ secrets.github-token }}
+            GITHUB_TOKEN=${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
+          provenance: false
+          sbom: false
+          # Reuse the layer cache across runs to speed up builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build and push on ECR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          push: true
+          tags: |
+            ${{ secrets.ECR_AWS_ACCOUNT_NUMBER }}.dkr.ecr.eu-west-3.amazonaws.com/yourloops/${APP_NAME}:${{ steps.version.outputs.value }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.value }}
+            GITHUB_TOKEN=${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
+          provenance: false
+          sbom: false
+          # Reuse the layer cache across runs to speed up builds
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2 – Build and publish OpenAPI + SOUP documentation to S3
+  # ─────────────────────────────────────────────────────────────────────────────
   docs:
+    name: Build & Publish documentation
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - id: version
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
         run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: git config --global url."https://${{ secrets.github-token }}@github.com/".insteadOf "https://github.com/"
-      - uses: actions/setup-python@v5
+
+      # Allow Go toolchain to fetch private modules hosted on github.com/mdblp
+      - name: Configure git for private modules
+        run: |
+          git config --global url."https://${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Set up Python (required by buildDoc.sh)
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      - env:
+
+      - name: Build documentation
+        env:
           APP_VERSION: ${{ steps.version.outputs.value }}
-        run: ./qa/buildDoc.sh
-      - env:
-          APP_VERSION: ${{ steps.version.outputs.value }}
-        run: ./qa/buildSoup.sh
-      - env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.s3-access-key }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.s3-secret-key }}
+          APP: ${{ inputs.app-name }}
+        run: |
+          echo "Getting latest swag and swagger"
+          GOPATH=${GOPATH:-~/go}
+          go install github.com/swaggo/swag/cmd/swag@latest
+          go install github.com/go-swagger/go-swagger/cmd/swagger@latest
+          mkdir -p output
+          echo "# SOUPs List for ${APP}@${APP_VERSION}" > output/${APP}-${APP_VERSION}-soup.md
+          go list -f '## {{printf "%s \\n\\t* description: \\n\\t* version: %s\\n\\t* webSite: https://%s\\n\\t* sources:" .Path .Version .Path}}' -m all >>  output/${APP}-${APP_VERSION}-soup.md
+          
+          echo "Openapi generation"
+          ${GOPATH}/bin/swag --version
+          ${GOPATH}/bin/swag init --parseDependency --generalInfo ${APP}.go --output docs
+          echo "Validate openapi spec"
+          ${GOPATH}/bin/swagger validate docs/swagger.json
+          cp docs/swagger.json output/${APP}-${APP_VERSION}-swagger.json
+          sed -i "s/1\\.0\\.0/${APP_VERSION}/g" docs/swagger.json
+          mv docs/swagger.json output/${APP}-latest-swagger.json
+
+      - name: Publish documentation to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: eu-west-1
           APP_VERSION: ${{ steps.version.outputs.value }}
           APP_NAME: ${{ inputs.app-name }}
         run: |
-          aws s3 cp docs/soup/${APP_NAME}/${APP_NAME}-${APP_VERSION}-soup.md \
-            s3://${{ secrets.s3-doc-bucket }}/soup/${APP_NAME}/
-          aws s3 cp docs/openapi/${APP_NAME}-${APP_VERSION}-swagger.json \
-            s3://${{ secrets.s3-doc-bucket }}/openapi/${APP_NAME}/
-          if [ -f docs/openapi/${APP_NAME}-latest-swagger.json ]; then
-            aws s3 cp docs/openapi/${APP_NAME}-latest-swagger.json \
-              s3://${{ secrets.s3-doc-bucket }}/openapi/${APP_NAME}/
+          # SOUP list
+          aws s3 cp \
+            output/${APP_NAME}-${APP_VERSION}-soup.md \
+            s3://${{ secrets.AWS_S3_DOC_BUCKET }}/soup/${APP_NAME}/
+
+          # Versioned OpenAPI spec
+          aws s3 cp \
+            output/${APP_NAME}-${APP_VERSION}-swagger.json \
+            s3://${{ secrets.AWS_S3_DOC_BUCKET }}/openapi/${APP_NAME}/
+
+          # Latest OpenAPI spec (only present for non-RC releases, see buildDoc.sh)
+          if [ -f output/${APP_NAME}-latest-swagger.json ]; then
+            aws s3 cp \
+              output/${APP_NAME}-latest-swagger.json \
+              s3://${{ secrets.AWS_S3_DOC_BUCKET }}/openapi/${APP_NAME}/
           fi
+
