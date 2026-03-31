@@ -1,0 +1,89 @@
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: 'App name, e.g. crew, seashell'
+        type: string
+        required: true
+      docker-image:
+        description: 'Full image name, e.g. docker.ci.diabeloop.eu/crew'
+        type: string
+        required: true
+      docker-target:
+        type: string
+        default: 'production'
+    secrets:
+      github-token:
+        required: true
+      docker-username:
+        required: true
+      docker-password:
+        required: true
+      s3-access-key:
+        required: true
+      s3-secret-key:
+        required: true
+      s3-doc-bucket:
+        required: true
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: docker.ci.diabeloop.eu
+          username: ${{ secrets.docker-username }}
+          password: ${{ secrets.docker-password }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ inputs.docker-target }}
+          push: true
+          tags: |
+            ${{ inputs.docker-image }}:${{ github.ref_name }}
+            ${{ inputs.docker-image }}:latest
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.value }}
+            GITHUB_TOKEN=${{ secrets.github-token }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: git config --global url."https://${{ secrets.github-token }}@github.com/".insteadOf "https://github.com/"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+        run: ./qa/buildDoc.sh
+      - env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+        run: ./qa/buildSoup.sh
+      - env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.s3-access-key }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.s3-secret-key }}
+          AWS_DEFAULT_REGION: eu-west-1
+          APP_VERSION: ${{ steps.version.outputs.value }}
+          APP_NAME: ${{ inputs.app-name }}
+        run: |
+          aws s3 cp docs/soup/${APP_NAME}/${APP_NAME}-${APP_VERSION}-soup.md \
+            s3://${{ secrets.s3-doc-bucket }}/soup/${APP_NAME}/
+          aws s3 cp docs/openapi/${APP_NAME}-${APP_VERSION}-swagger.json \
+            s3://${{ secrets.s3-doc-bucket }}/openapi/${APP_NAME}/
+          if [ -f docs/openapi/${APP_NAME}-latest-swagger.json ]; then
+            aws s3 cp docs/openapi/${APP_NAME}-latest-swagger.json \
+              s3://${{ secrets.s3-doc-bucket }}/openapi/${APP_NAME}/
+          fi

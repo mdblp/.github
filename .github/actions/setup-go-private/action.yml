@@ -1,0 +1,24 @@
+name: 'Setup Go with private modules'
+description: 'Install Go and configure git for private github.com/mdblp modules'
+
+inputs:
+  github-token:
+    description: 'PAT to access private modules'
+    required: true
+  go-version-file:
+    description: 'Path to go.mod'
+    default: 'go.mod'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: ${{ inputs.go-version-file }}
+
+    - name: Configure git for private modules
+      shell: bash
+      run: |
+        git config --global \
+          url."https://${{ inputs.github-token }}@github.com/".insteadOf \
+          "https://github.com/"
