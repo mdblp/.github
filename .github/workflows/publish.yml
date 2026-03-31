@@ -48,7 +48,7 @@ jobs:
           push: true
           # Tag with the exact release version AND update the "latest" pointer
           tags: |
-            docker.ci.diabeloop.eu/${APP_NAME}:${{ steps.version.outputs.value }}
+            docker.ci.diabeloop.eu/${{ inputs.app-name }}:${{ steps.version.outputs.value }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GITHUB_TOKEN=${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
@@ -64,7 +64,7 @@ jobs:
           target: production
           push: true
           tags: |
-            ${{ secrets.ECR_AWS_ACCOUNT_NUMBER }}.dkr.ecr.eu-west-3.amazonaws.com/yourloops/${APP_NAME}:${{ steps.version.outputs.value }}
+            ${{ secrets.ECR_AWS_ACCOUNT_NUMBER }}.dkr.ecr.eu-west-3.amazonaws.com/yourloops/${{ inputs.app-name }}:${{ steps.version.outputs.value }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GITHUB_TOKEN=${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
