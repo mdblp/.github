@@ -116,7 +116,7 @@ jobs:
           go install github.com/go-swagger/go-swagger/cmd/swagger@latest
           mkdir -p output
           echo "# SOUPs List for ${APP}@${APP_VERSION}" > output/${APP}-${APP_VERSION}-soup.md
-          go list -f '## {{printf "%s \\n\\t* description: \\n\\t* version: %s\\n\\t* webSite: https://%s\\n\\t* sources:" .Path .Version .Path}}' -m all >>  output/${APP}-${APP_VERSION}-soup.md
+          go list -f '## {{printf "%s \n\t* description: \n\t* version: %s\n\t* webSite: https://%s\n\t* sources:" .Path .Version .Path}}' -m all >>  output/${APP}-${APP_VERSION}-soup.md
           
           echo "Openapi generation"
           ${GOPATH}/bin/swag --version
