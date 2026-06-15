@@ -93,8 +93,9 @@ jobs:
         run: |
           curl -fsSL \
             -H "Authorization: token ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}" \
+            -H "Accept: application/vnd.github.raw" \
             -o push_sbom.go \
-            "https://raw.githubusercontent.com/mdblp/.github/main/.github/workflows/push_sbom.go"
+            "https://api.github.com/repos/mdblp/.github/contents/.github/workflows/push_sbom.go"
       - name: Push SBOM to Sonatype IQ SBOM Manager
         env:
           USER_CODE: ${{ secrets.SBOM_MANAGER_USER_CODE }}
