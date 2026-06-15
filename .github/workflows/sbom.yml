@@ -67,10 +67,9 @@ jobs:
         with:
           github-token: ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
       - name: Generate SBOM excluding test dependencies
-        uses: CycloneDX/gh-gomod-generate-sbom@v2
-        with:
-          version: v1
-          args: app -licenses -assert-licenses -json -std -output bom.cdx.json -main .
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1
+          cyclonedx-gomod app -licenses -assert-licenses -json -std -output bom.cdx.json -main .
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v7
         with:
