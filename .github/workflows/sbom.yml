@@ -1,0 +1,97 @@
+name: SBOM generation and upload
+
+#  Old repo (CHANGELOG.md) — notification/sbom.yml:
+#  on:
+#    push:
+#      branches: [ main ]
+#    pull_request:
+#
+#  jobs:
+#    sbom:
+#      uses:
+#  mdblp/.github/.github/workflows/sbom.yml@main
+#      with:
+#        app-name: notification
+#      secrets: inherit
+#
+#  New repo (semantic-release) — crew/sbom.yml:
+#  on:
+#    push:
+#      tags:
+#        - 'v*.*.*'
+#
+#  jobs:
+#    sbom:
+#      uses:
+#  mdblp/.github/.github/workflows/sbom.yml@main
+#      with:
+#        app-name: crew
+#        version-source: git-tag
+#      secrets: inherit
+#
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: 'App public ID in Sonatype IQ, e.g. notification, crew'
+        type: string
+        required: true
+      version-source:
+        description: '"changelog" reads the first ## heading in CHANGELOG.md (default); "git-tag" strips the leading v from the triggering tag (v1.2.3 → 1.2.3)'
+        type: string
+        default: changelog
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  sbom-generation:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ inputs.version-source }}" = "git-tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(grep -m1 '^## ' CHANGELOG.md | sed 's/^## //' | awk '{print $1}')
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - uses: mdblp/.github/.github/actions/setup-go-private@main
+        with:
+          github-token: ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
+      - name: Generate SBOM excluding test dependencies
+        uses: CycloneDX/gh-gomod-generate-sbom@v2
+        with:
+          version: v1
+          args: app -licenses -assert-licenses -json -std -output bom.cdx.json -main .
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: bom.cdx.json
+          retention-days: 30
+
+  sbom-upload:
+    name: Upload SBOM to Sonatype IQ
+    needs: sbom-generation
+    runs-on: ubuntu-latest
+    env:
+      APP_VERSION: ${{ needs.sbom-generation.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download SBOM artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: sbom
+      - name: Push SBOM to Sonatype IQ SBOM Manager
+        env:
+          USER_CODE: ${{ secrets.SBOM_MANAGER_USER_CODE }}
+          PASSCODE: ${{ secrets.SBOM_MANAGER_PASSCODE }}
+        run: go run .github/workflows/push_sbom.go "${{ inputs.app-name }}" "${APP_VERSION}"
