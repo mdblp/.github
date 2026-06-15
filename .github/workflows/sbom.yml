@@ -85,17 +85,18 @@ jobs:
     env:
       APP_VERSION: ${{ needs.sbom-generation.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: mdblp/.github
-          ref: main
-          token: ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
       - name: Download SBOM artifact
         uses: actions/download-artifact@v8
         with:
           name: sbom
+      - name: Download push_sbom.go
+        run: |
+          curl -fsSL \
+            -H "Authorization: token ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}" \
+            -o push_sbom.go \
+            "https://raw.githubusercontent.com/mdblp/.github/main/.github/workflows/push_sbom.go"
       - name: Push SBOM to Sonatype IQ SBOM Manager
         env:
           USER_CODE: ${{ secrets.SBOM_MANAGER_USER_CODE }}
           PASSCODE: ${{ secrets.SBOM_MANAGER_PASSCODE }}
-        run: go run .github/workflows/push_sbom.go "${{ inputs.app-name }}" "${APP_VERSION}"
+        run: go run push_sbom.go "${{ inputs.app-name }}" "${APP_VERSION}"
