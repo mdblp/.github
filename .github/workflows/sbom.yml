@@ -86,6 +86,8 @@ jobs:
       APP_VERSION: ${{ needs.sbom-generation.outputs.version }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          repository: mdblp/.github
       - name: Download SBOM artifact
         uses: actions/download-artifact@v8
         with:
