@@ -92,7 +92,6 @@ jobs:
       - name: Download push_sbom.go
         run: |
           curl -fsSL \
-            -H "Authorization: token ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}" \
             -H "Accept: application/vnd.github.raw" \
             -o push_sbom.go \
             "https://api.github.com/repos/mdblp/.github/contents/.github/workflows/push_sbom.go"
@@ -100,4 +99,5 @@ jobs:
         env:
           USER_CODE: ${{ secrets.SBOM_MANAGER_USER_CODE }}
           PASSCODE: ${{ secrets.SBOM_MANAGER_PASSCODE }}
+          SBOM_MANAGER_BASE_URL: ${{ secrets.SBOM_MANAGER_BASE_URL }}
         run: go run push_sbom.go "${{ inputs.app-name }}" "${APP_VERSION}"

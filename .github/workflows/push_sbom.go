@@ -22,7 +22,6 @@ import (
 )
 
 const (
-	baseURL   = "https://diabeloop.iq.sonatype.app"
 	sbomFile  = "bom.cdx.json"
 	pollEvery = 5 * time.Second
 	maxPolls  = 24
@@ -36,6 +35,7 @@ func main() {
 
 	userCode := getEnv("USER_CODE")
 	passcode := getEnv("PASSCODE")
+	baseURL := getEnv("SBOM_MANAGER_BASE_URL")
 	publicID := os.Args[1]
 	appVersion := os.Args[2]
 
@@ -44,15 +44,15 @@ func main() {
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	appID, err := resolveAppID(client, userCode, passcode, publicID)
+	appID, err := resolveAppID(client, userCode, passcode, baseURL, publicID)
 	handleError(err)
 	fmt.Printf("applicationId=%s\n", appID)
 
 	if sbomVersion == "main" {
-		handleError(deleteMainVersions(client, userCode, passcode, appID))
+		handleError(deleteMainVersions(client, userCode, passcode, baseURL, appID))
 	}
 
-	statusURL, err := uploadSBOM(client, userCode, passcode, appID, sbomVersion)
+	statusURL, err := uploadSBOM(client, userCode, passcode, baseURL, appID, sbomVersion)
 	handleError(err)
 	fmt.Printf("polling status at %s\n", statusURL)
 
@@ -70,7 +70,7 @@ func resolveSBOMVersion(appVersion string) string {
 }
 
 // resolveAppID looks up the internal application ID for the given publicID.
-func resolveAppID(client *http.Client, userCode, passcode, publicID string) (string, error) {
+func resolveAppID(client *http.Client, userCode, passcode, baseURL, publicID string) (string, error) {
 	url := fmt.Sprintf("%s/api/v2/applications?publicId=%s", baseURL, publicID)
 	body, err := get(client, userCode, passcode, url)
 	if err != nil {
@@ -89,7 +89,7 @@ func resolveAppID(client *http.Client, userCode, passcode, publicID string) (str
 }
 
 // deleteMainVersions removes all SBOM versions whose ID starts with "main".
-func deleteMainVersions(client *http.Client, userCode, passcode, appID string) error {
+func deleteMainVersions(client *http.Client, userCode, passcode, baseURL, appID string) error {
 	url := fmt.Sprintf("%s/api/v2/sbom/applications/%s/versions", baseURL, appID)
 	body, err := get(client, userCode, passcode, url)
 	if err != nil {
@@ -123,7 +123,7 @@ func deleteMainVersions(client *http.Client, userCode, passcode, appID string) e
 }
 
 // uploadSBOM posts the SBOM file and returns the status-polling URL.
-func uploadSBOM(client *http.Client, userCode, passcode, appID, sbomVersion string) (string, error) {
+func uploadSBOM(client *http.Client, userCode, passcode, baseURL, appID, sbomVersion string) (string, error) {
 	f, err := os.Open(sbomFile)
 	if err != nil {
 		return "", fmt.Errorf("open %s: %w", sbomFile, err)
