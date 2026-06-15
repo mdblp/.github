@@ -90,12 +90,12 @@ jobs:
         with:
           name: sbom
       - name: Download push_sbom.go
-        env:
-          GH_TOKEN: ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
         run: |
-          gh api repos/mdblp/.github/contents/.github/workflows/push_sbom.go \
-            --header "Accept: application/vnd.github.raw" \
-            -o push_sbom.go
+          curl -fsSL \
+            -H "Authorization: token ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}" \
+            -H "Accept: application/vnd.github.raw" \
+            -o push_sbom.go \
+            "https://api.github.com/repos/mdblp/.github/contents/.github/workflows/push_sbom.go"
       - name: Push SBOM to Sonatype IQ SBOM Manager
         env:
           USER_CODE: ${{ secrets.SBOM_MANAGER_USER_CODE }}
