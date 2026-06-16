@@ -47,6 +47,10 @@ on:
         description: '"go" generates SBOM with cyclonedx-gomod (default); "js" generates SBOM with @cyclonedx/cyclonedx-npm'
         type: string
         default: go
+      main-path:
+        description: 'Path to the directory containing the main package, used by cyclonedx-gomod app (default: .)'
+        type: string
+        default: '.'
 
 permissions:
   contents: read
@@ -77,7 +81,7 @@ jobs:
         if: ${{ inputs.language != 'js' }}
         run: |
           go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1
-          cyclonedx-gomod app -licenses -assert-licenses -json -std -output sbom.cdx.json -main .
+          cyclonedx-gomod app -licenses -assert-licenses -json -std -output sbom.cdx.json -main ${{ inputs.main-path }}
       - name: Generate SBOM (JS)
         if: ${{ inputs.language == 'js' }}
         run: |
