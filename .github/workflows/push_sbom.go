@@ -22,14 +22,13 @@ import (
 )
 
 const (
-	sbomFile  = "bom.cdx.json"
 	pollEvery = 5 * time.Second
 	maxPolls  = 24
 )
 
 func main() {
-	if len(os.Args) < 3 {
-		fmt.Fprintln(os.Stderr, "usage: push_sbom <app_name> <app_version>")
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "usage: push_sbom <app_name> <app_version> <sbom_filename>")
 		os.Exit(1)
 	}
 
@@ -38,6 +37,7 @@ func main() {
 	baseURL := getEnv("SBOM_MANAGER_BASE_URL")
 	publicID := os.Args[1]
 	appVersion := os.Args[2]
+	sbomFilename := os.Args[3]
 
 	sbomVersion := resolveSBOMVersion(appVersion)
 	fmt.Printf("app_name=%s  app_version=%s  sbom_version=%s\n", publicID, appVersion, sbomVersion)
@@ -52,7 +52,7 @@ func main() {
 		handleError(deleteMainVersions(client, userCode, passcode, baseURL, appID))
 	}
 
-	statusURL, err := uploadSBOM(client, userCode, passcode, baseURL, appID, sbomVersion)
+	statusURL, err := uploadSBOM(client, userCode, passcode, baseURL, appID, sbomVersion, sbomFilename)
 	handleError(err)
 	fmt.Printf("polling status at %s\n", statusURL)
 
@@ -123,16 +123,16 @@ func deleteMainVersions(client *http.Client, userCode, passcode, baseURL, appID 
 }
 
 // uploadSBOM posts the SBOM file and returns the status-polling URL.
-func uploadSBOM(client *http.Client, userCode, passcode, baseURL, appID, sbomVersion string) (string, error) {
-	f, err := os.Open(sbomFile)
+func uploadSBOM(client *http.Client, userCode, passcode, baseURL, appID, sbomVersion string, sbomFilename string) (string, error) {
+	f, err := os.Open(sbomFilename)
 	if err != nil {
-		return "", fmt.Errorf("open %s: %w", sbomFile, err)
+		return "", fmt.Errorf("open %s: %w", sbomFilename, err)
 	}
 	defer f.Close()
 
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	fw, err := mw.CreateFormFile("file", sbomFile)
+	fw, err := mw.CreateFormFile("file", sbomFilename)
 	if err != nil {
 		return "", err
 	}
