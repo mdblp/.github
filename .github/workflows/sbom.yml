@@ -43,6 +43,10 @@ on:
         description: '"changelog" reads the first ## heading in CHANGELOG.md (default); "git-tag" strips the leading v from the triggering tag (v1.2.3 → 1.2.3)'
         type: string
         default: changelog
+      language:
+        description: '"go" generates SBOM with cyclonedx-gomod (default); "js" generates SBOM with @cyclonedx/cyclonedx-npm'
+        type: string
+        default: go
 
 permissions:
   contents: read
@@ -66,12 +70,21 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
       - uses: mdblp/.github/.github/actions/setup-go-private@main
+        if: ${{ inputs.language != 'js' }}
         with:
           github-token: ${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
-      - name: Generate SBOM excluding test dependencies
+      - name: Generate SBOM (Go)
+        if: ${{ inputs.language != 'js' }}
         run: |
           go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1
           cyclonedx-gomod app -licenses -assert-licenses -json -std -output sbom.cdx.json -main .
+      - name: Generate SBOM (JS)
+        if: ${{ inputs.language == 'js' }}
+        run: |
+          npx @cyclonedx/cyclonedx-npm \
+            --package-lock-only \
+            --omit dev \
+            -o sbom.cdx.json
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v7
         with:
