@@ -48,9 +48,7 @@ func main() {
 	handleError(err)
 	fmt.Printf("applicationId=%s\n", appID)
 
-	if sbomVersion == "main" {
-		handleError(deleteMainVersions(client, userCode, passcode, baseURL, appID))
-	}
+	handleError(deleteAllVersions(client, userCode, passcode, baseURL, appID))
 
 	statusURL, err := uploadSBOM(client, userCode, passcode, baseURL, appID, sbomVersion, sbomFilename)
 	handleError(err)
@@ -88,8 +86,8 @@ func resolveAppID(client *http.Client, userCode, passcode, baseURL, publicID str
 	return resp.Applications[0].ID, nil
 }
 
-// deleteMainVersions removes all SBOM versions whose ID starts with "main".
-func deleteMainVersions(client *http.Client, userCode, passcode, baseURL, appID string) error {
+// deleteAllVersions removes all existing SBOM versions for the application.
+func deleteAllVersions(client *http.Client, userCode, passcode, baseURL, appID string) error {
 	url := fmt.Sprintf("%s/api/v2/sbom/applications/%s/versions", baseURL, appID)
 	body, err := get(client, userCode, passcode, url)
 	if err != nil {
@@ -99,14 +97,10 @@ func deleteMainVersions(client *http.Client, userCode, passcode, baseURL, appID 
 
 	var versionIDs []string
 	if err := json.Unmarshal(body, &versionIDs); err != nil {
-		// Fall back: the API may return something other than a plain array.
 		return fmt.Errorf("parse versions: %w (body: %s)", err, body)
 	}
 
 	for _, id := range versionIDs {
-		if !strings.HasPrefix(id, "main") {
-			continue
-		}
 		fmt.Printf("deleting SBOM version %s\n", id)
 		delURL := fmt.Sprintf("%s/api/v2/sbom/applications/%s/versions/%s", baseURL, appID, id)
 		req, _ := http.NewRequest(http.MethodDelete, delURL, nil)
