@@ -16,7 +16,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -39,8 +38,8 @@ func main() {
 	appVersion := os.Args[2]
 	sbomFilename := os.Args[3]
 
-	sbomVersion := resolveSBOMVersion(appVersion)
-	fmt.Printf("app_name=%s  app_version=%s  sbom_version=%s\n", publicID, appVersion, sbomVersion)
+	sbomVersion := appVersion
+	fmt.Printf("app_name=%s  sbom_version=%s\n", publicID, sbomVersion)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
@@ -48,7 +47,7 @@ func main() {
 	handleError(err)
 	fmt.Printf("applicationId=%s\n", appID)
 
-	handleError(deleteAllVersions(client, userCode, passcode, baseURL, appID))
+	handleError(keepOnlyLastSbomVersion(client, userCode, passcode, baseURL, appID, sbomVersion))
 
 	statusURL, err := uploadSBOM(client, userCode, passcode, baseURL, appID, sbomVersion, sbomFilename)
 	handleError(err)
@@ -56,15 +55,6 @@ func main() {
 
 	handleError(pollUntilDone(client, userCode, passcode, statusURL))
 	fmt.Println("SBOM import completed successfully.")
-}
-
-// resolveSBOMVersion maps pre-release labels (UNRELEASED, *RC*, *BETA*) to "main".
-func resolveSBOMVersion(appVersion string) string {
-	pre := regexp.MustCompile(`(?i)^unreleased$|rc|beta`)
-	if pre.MatchString(appVersion) {
-		return "main"
-	}
-	return appVersion
 }
 
 // resolveAppID looks up the internal application ID for the given publicID.
@@ -86,8 +76,10 @@ func resolveAppID(client *http.Client, userCode, passcode, baseURL, publicID str
 	return resp.Applications[0].ID, nil
 }
 
-// deleteAllVersions removes all existing SBOM versions for the application.
-func deleteAllVersions(client *http.Client, userCode, passcode, baseURL, appID string) error {
+// keepOnlyLastSbomVersion deletes all existing versions of the same kind as sbomVersion
+// (semver or non-semver), so that after the upload SBOM Manager holds at most one semver
+// and one non-semver version.
+func keepOnlyLastSbomVersion(client *http.Client, userCode, passcode, baseURL, appID, sbomVersion string) error {
 	url := fmt.Sprintf("%s/api/v2/sbom/applications/%s/versions", baseURL, appID)
 	body, err := get(client, userCode, passcode, url)
 	if err != nil {
@@ -100,7 +92,7 @@ func deleteAllVersions(client *http.Client, userCode, passcode, baseURL, appID s
 		return fmt.Errorf("parse versions: %w (body: %s)", err, body)
 	}
 
-	for _, id := range versionIDs {
+	for _, id := range selectVersionsToDelete(versionIDs, sbomVersion) {
 		fmt.Printf("deleting SBOM version %s\n", id)
 		delURL := fmt.Sprintf("%s/api/v2/sbom/applications/%s/versions/%s", baseURL, appID, id)
 		req, _ := http.NewRequest(http.MethodDelete, delURL, nil)
@@ -114,6 +106,24 @@ func deleteAllVersions(client *http.Client, userCode, passcode, baseURL, appID s
 		fmt.Printf("deleted %s → %s\n", id, resp.Status)
 	}
 	return nil
+}
+
+// selectVersionsToDelete returns all existing versions of the same kind as uploadVersion.
+func selectVersionsToDelete(existing []string, uploadVersion string) []string {
+	uploading := isSemver(uploadVersion)
+	var toDelete []string
+	for _, v := range existing {
+		if isSemver(v) == uploading {
+			toDelete = append(toDelete, v)
+		}
+	}
+	return toDelete
+}
+
+func isSemver(v string) bool {
+	var major, minor, patch int
+	n, _ := fmt.Sscanf(v, "%d.%d.%d", &major, &minor, &patch)
+	return n == 3
 }
 
 // uploadSBOM posts the SBOM file and returns the status-polling URL.
