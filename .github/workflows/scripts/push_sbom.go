@@ -16,6 +16,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -77,8 +78,8 @@ func resolveAppID(client *http.Client, userCode, passcode, baseURL, publicID str
 }
 
 // keepOnlyLastSbomVersion deletes all existing versions of the same kind as sbomVersion
-// (semver or non-semver), so that after the upload SBOM Manager holds at most one semver
-// and one non-semver version.
+// (final release or non-final release), so that after the upload SBOM Manager holds at most one final and one
+// non-final version.
 func keepOnlyLastSbomVersion(client *http.Client, userCode, passcode, baseURL, appID, sbomVersion string) error {
 	url := fmt.Sprintf("%s/api/v2/sbom/applications/%s/versions", baseURL, appID)
 	body, err := get(client, userCode, passcode, url)
@@ -110,20 +111,20 @@ func keepOnlyLastSbomVersion(client *http.Client, userCode, passcode, baseURL, a
 
 // selectVersionsToDelete returns all existing versions of the same kind as uploadVersion.
 func selectVersionsToDelete(existing []string, uploadVersion string) []string {
-	uploading := isSemver(uploadVersion)
+	uploading := isStableRelease(uploadVersion)
 	var toDelete []string
 	for _, v := range existing {
-		if isSemver(v) == uploading {
+		if isStableRelease(v) == uploading {
 			toDelete = append(toDelete, v)
 		}
 	}
 	return toDelete
 }
 
-func isSemver(v string) bool {
-	var major, minor, patch int
-	n, _ := fmt.Sscanf(v, "%d.%d.%d", &major, &minor, &patch)
-	return n == 3
+var stableReleaseRegExp = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+func isStableRelease(v string) bool {
+	return stableReleaseRegExp.MatchString(v)
 }
 
 // uploadSBOM posts the SBOM file and returns the status-polling URL.
