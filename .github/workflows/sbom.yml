@@ -82,6 +82,12 @@ jobs:
         run: |
           go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1
           cyclonedx-gomod app -licenses -assert-licenses -json -std -output sbom.cdx.json -main ${{ inputs.main-path }}
+      - name: Authenticate to Nexus npm registry
+        if: ${{ inputs.language == 'js' }}
+        uses: mdblp/.github/.github/actions/nexus-npm-auth@main
+        with:
+          username: ${{ secrets.NEXUS_RO_USERNAME }}
+          password: ${{ secrets.NEXUS_RO_PASSWORD }}
       - name: Generate SBOM (JS)
         if: ${{ inputs.language == 'js' }}
         run: |
