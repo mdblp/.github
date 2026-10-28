@@ -5,6 +5,10 @@ on:
         description: 'App name, e.g. crew, seashell'
         type: string
         required: true
+      test-tooling:
+        description: 'Push the image under test-tooling/ (dev-only mocks and test tools) instead of yourloops/'
+        type: boolean
+        default: false
 
 jobs:
   docker:
@@ -35,6 +39,11 @@ jobs:
         with:
           registry: ${{ secrets.ECR_AWS_ACCOUNT_NUMBER }}.dkr.ecr.eu-west-3.amazonaws.com
 
+      # Test tooling images live under test-tooling/ and can only be pulled by dev accounts (ADR 0016).
+      - name: Compute ECR repository
+        id: repo
+        run: echo "name=${{ inputs.test-tooling && 'test-tooling' || 'yourloops' }}/${{ inputs.app-name }}" >> "$GITHUB_OUTPUT"
+
       # Targets the "production" stage of the multi-stage Dockerfile.
       # APP_VERSION is embedded in the binary via ldflags (see qa/build.sh).
       # GITHUB_TOKEN is required by the Dockerfile to fetch private Go modules.
@@ -45,7 +54,7 @@ jobs:
           target: production
           push: true
           tags: |
-            ${{ secrets.ECR_AWS_ACCOUNT_NUMBER }}.dkr.ecr.eu-west-3.amazonaws.com/yourloops/${{ inputs.app-name }}:${{ steps.version.outputs.value }}
+            ${{ secrets.ECR_AWS_ACCOUNT_NUMBER }}.dkr.ecr.eu-west-3.amazonaws.com/${{ steps.repo.outputs.name }}:${{ steps.version.outputs.value }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.value }}
             GITHUB_TOKEN=${{ secrets.DBLBOT_PRIVATE_ACCESS_TOKEN }}
