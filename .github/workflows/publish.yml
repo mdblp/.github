@@ -5,10 +5,10 @@ on:
         description: 'App name, e.g. crew, seashell'
         type: string
         required: true
-      test-tooling:
-        description: 'Push the image under test-tooling/ (dev-only mocks and test tools) instead of yourloops/'
-        type: boolean
-        default: false
+      repo-name:
+        description: 'ECR repository prefix, e.g. yourloops, test-tooling (dev-only mocks and test tools)'
+        type: string
+        default: 'yourloops'
 
 jobs:
   docker:
@@ -42,7 +42,7 @@ jobs:
       # Test tooling images live under test-tooling/ and can only be pulled by dev accounts (ADR 0016).
       - name: Compute ECR repository
         id: repo
-        run: echo "name=${{ inputs.test-tooling && 'test-tooling' || 'yourloops' }}/${{ inputs.app-name }}" >> "$GITHUB_OUTPUT"
+        run: echo "name=${{ inputs.repo-name || 'yourloops' }}/${{ inputs.app-name }}" >> "$GITHUB_OUTPUT"
 
       # Targets the "production" stage of the multi-stage Dockerfile.
       # APP_VERSION is embedded in the binary via ldflags (see qa/build.sh).
